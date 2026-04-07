@@ -14,7 +14,15 @@ export default function Home() {
   const [storeId, setStoreId] = useState('');
   const [apiToken, setApiToken] = useState('');
   const [credsSaved, setCredsSaved] = useState(false);
+  const [aliases, setAliases] = useState({});
   const inputRef = useRef();
+
+  // Todos los productos con talles que pueden aparecer
+  const ALL_PRODUCTS = [
+    'Gorro', 'Rodillera S', 'Rodillera M', 'Rodillera L', 'Rodillera XL',
+    'Tobillera', 'Codera S', 'Codera M', 'Codera L',
+    'Medias Spa', 'Taloneras', 'Handgrip', 'Guantes', 'Faja Lumbar',
+  ];
 
   useEffect(() => {
     const id    = localStorage.getItem('tn_store_id')  || '';
@@ -22,12 +30,22 @@ export default function Home() {
     setStoreId(id);
     setApiToken(token);
     if (id && token) setCredsSaved(true);
+    try {
+      const saved = JSON.parse(localStorage.getItem('tn_aliases') || '{}');
+      if (Object.keys(saved).length) setAliases(saved);
+    } catch {}
   }, []);
 
   const saveCredentials = () => {
     localStorage.setItem('tn_store_id',  storeId.trim());
     localStorage.setItem('tn_api_token', apiToken.trim());
     setCredsSaved(true);
+  };
+
+  const updateAlias = (product, value) => {
+    const next = { ...aliases, [product]: value };
+    setAliases(next);
+    localStorage.setItem('tn_aliases', JSON.stringify(next));
   };
 
   const handleFile = (f) => {
@@ -54,7 +72,7 @@ export default function Home() {
       const credentials = storeId && apiToken
         ? { storeId: storeId.trim(), token: apiToken.trim() }
         : null;
-      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPct);
+      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPct, aliases);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
       setResultado(resumen);
@@ -133,6 +151,32 @@ export default function Home() {
                 {credsSaved ? '✓ Guardado' : 'Guardar'}
               </button>
               {credsSaved && <span style={styles.credsBadge}>Conectado a tienda #{storeId}</span>}
+            </div>
+          </div>
+
+          {/* Aliases de productos */}
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Nombres en etiqueta</h2>
+            <p style={styles.helpText}>Personalizá cómo aparece cada producto en la etiqueta. Dejá vacío para ocultarlo.</p>
+            <div style={styles.aliasGrid}>
+              {ALL_PRODUCTS.map(prod => (
+                <div key={prod} style={styles.aliasRow}>
+                  <span style={{ ...styles.tag, ...tagClass(prod), fontSize: 11 }}>{prod}</span>
+                  <input
+                    style={styles.aliasInput}
+                    type="text"
+                    placeholder={prod}
+                    value={aliases[prod] !== undefined ? aliases[prod] : ''}
+                    onChange={e => updateAlias(prod, e.target.value)}
+                  />
+                  {aliases[prod] !== undefined && aliases[prod] !== '' && (
+                    <span style={styles.aliasPreview}>{aliases[prod]}</span>
+                  )}
+                  {aliases[prod] === '' && (
+                    <span style={styles.aliasHidden}>oculto</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -221,8 +265,12 @@ export default function Home() {
                   >
                     <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
                     <div style={styles.previewStripTags}>
-                      <span style={{ ...styles.previewTag, background: '#e1f5ee', color: '#085041' }}>Rodillera M</span>
-                      <span style={{ ...styles.previewTag, background: '#eeedfe', color: '#3c3489' }}>Gorro</span>
+                      <span style={{ ...styles.previewTag, background: '#e1f5ee', color: '#085041' }}>
+                        {aliases['Rodillera M'] !== undefined ? (aliases['Rodillera M'] || null) : 'Rodillera M'}
+                      </span>
+                      <span style={{ ...styles.previewTag, background: '#eeedfe', color: '#3c3489' }}>
+                        {aliases['Gorro'] !== undefined ? (aliases['Gorro'] || null) : 'Gorro'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -341,4 +389,9 @@ const styles = {
   previewStripTags: { display: 'flex', gap: 4 },
   previewTag: { fontSize: 8, fontWeight: 600, padding: '1px 6px', borderRadius: 3 },
   previewHint: { fontSize: 11, color: '#aaa', margin: 0 },
+  aliasGrid: { display: 'flex', flexDirection: 'column', gap: 6 },
+  aliasRow: { display: 'flex', alignItems: 'center', gap: 10 },
+  aliasInput: { width: 100, border: '1px solid #e0e0e0', borderRadius: 6, padding: '5px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
+  aliasPreview: { fontSize: 11, color: '#22a066', fontWeight: 600 },
+  aliasHidden: { fontSize: 11, color: '#cc4444', fontStyle: 'italic' },
 };
