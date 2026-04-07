@@ -15,6 +15,7 @@ export default function Home() {
   const [apiToken, setApiToken] = useState('');
   const [credsSaved, setCredsSaved] = useState(false);
   const [aliases, setAliases] = useState({});
+  const [sortOrder, setSortOrder] = useState(null);
   const inputRef = useRef();
 
   // Todos los productos con talles que pueden aparecer
@@ -23,6 +24,8 @@ export default function Home() {
     'Tobillera', 'Codera S', 'Codera M', 'Codera L',
     'Medias Spa', 'Taloneras', 'Handgrip', 'Guantes', 'Faja Lumbar',
   ];
+
+  const DEFAULT_SORT_ORDER = [...ALL_PRODUCTS];
 
   useEffect(() => {
     const id    = localStorage.getItem('tn_store_id')  || '';
@@ -34,12 +37,27 @@ export default function Home() {
       const saved = JSON.parse(localStorage.getItem('tn_aliases') || '{}');
       if (Object.keys(saved).length) setAliases(saved);
     } catch {}
+    try {
+      const savedOrder = JSON.parse(localStorage.getItem('tn_sort_order'));
+      if (Array.isArray(savedOrder) && savedOrder.length) setSortOrder(savedOrder);
+    } catch {}
   }, []);
 
   const saveCredentials = () => {
     localStorage.setItem('tn_store_id',  storeId.trim());
     localStorage.setItem('tn_api_token', apiToken.trim());
     setCredsSaved(true);
+  };
+
+  const currentSortOrder = sortOrder || DEFAULT_SORT_ORDER;
+
+  const moveSortItem = (index, direction) => {
+    const newOrder = [...currentSortOrder];
+    const target = index + direction;
+    if (target < 0 || target >= newOrder.length) return;
+    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
+    setSortOrder(newOrder);
+    localStorage.setItem('tn_sort_order', JSON.stringify(newOrder));
   };
 
   const updateAlias = (product, value) => {
@@ -72,7 +90,7 @@ export default function Home() {
       const credentials = storeId && apiToken
         ? { storeId: storeId.trim(), token: apiToken.trim() }
         : null;
-      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPct, aliases);
+      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPct, aliases, currentSortOrder);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
       setResultado(resumen);
@@ -175,6 +193,30 @@ export default function Home() {
                   {aliases[prod] === '' && (
                     <span style={styles.aliasHidden}>oculto</span>
                   )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Orden de prioridad */}
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Orden de agrupación</h2>
+            <p style={styles.helpText}>Cuando elegís "Por producto", las etiquetas se agrupan en este orden. Usá las flechas para reordenar.</p>
+            <div style={styles.sortList}>
+              {currentSortOrder.map((prod, i) => (
+                <div key={prod} style={styles.sortRow}>
+                  <span style={styles.sortNum}>{i + 1}</span>
+                  <span style={{ ...styles.tag, ...tagClass(prod), fontSize: 11, flex: 1 }}>{prod}</span>
+                  <button
+                    style={styles.sortBtn}
+                    onClick={() => moveSortItem(i, -1)}
+                    disabled={i === 0}
+                  >&#9650;</button>
+                  <button
+                    style={styles.sortBtn}
+                    onClick={() => moveSortItem(i, 1)}
+                    disabled={i === currentSortOrder.length - 1}
+                  >&#9660;</button>
                 </div>
               ))}
             </div>
@@ -393,4 +435,8 @@ const styles = {
   aliasInput: { width: 100, border: '1px solid #e0e0e0', borderRadius: 6, padding: '5px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
   aliasPreview: { fontSize: 11, color: '#22a066', fontWeight: 600 },
   aliasHidden: { fontSize: 11, color: '#cc4444', fontStyle: 'italic' },
+  sortList: { display: 'flex', flexDirection: 'column', gap: 4 },
+  sortRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' },
+  sortNum: { fontSize: 11, color: '#aaa', fontWeight: 600, width: 18, textAlign: 'center' },
+  sortBtn: { background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 4, width: 28, height: 24, cursor: 'pointer', fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };
