@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import Head from 'next/head';
-import { processPDF } from '../lib/pdfProcessor';
+import { processPDF, DEFAULT_PRODUCTS } from '../lib/pdfProcessor';
 
 export default function Home() {
   const [file, setFile] = useState(null);
@@ -9,7 +9,24 @@ export default function Home() {
   const [ordenar, setOrdenar] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [storeId, setStoreId] = useState('');
+  const [apiToken, setApiToken] = useState('');
+  const [credsSaved, setCredsSaved] = useState(false);
   const inputRef = useRef();
+
+  useEffect(() => {
+    const id    = localStorage.getItem('tn_store_id')  || '';
+    const token = localStorage.getItem('tn_api_token') || '';
+    setStoreId(id);
+    setApiToken(token);
+    if (id && token) setCredsSaved(true);
+  }, []);
+
+  const saveCredentials = () => {
+    localStorage.setItem('tn_store_id',  storeId.trim());
+    localStorage.setItem('tn_api_token', apiToken.trim());
+    setCredsSaved(true);
+  };
 
   const handleFile = (f) => {
     if (f && f.type === 'application/pdf') {
@@ -32,7 +49,10 @@ export default function Home() {
     setResultado(null);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar);
+      const credentials = storeId && apiToken
+        ? { storeId: storeId.trim(), token: apiToken.trim() }
+        : null;
+      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
       setResultado(resumen);
@@ -76,6 +96,44 @@ export default function Home() {
         </div>
 
         <div style={styles.container}>
+          {/* Credenciales TiendaNube */}
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Credenciales TiendaNube</h2>
+            <p style={styles.helpText}>Solo para etiquetas E-Pick. Se guardan en tu navegador.</p>
+            <div style={styles.credsGrid}>
+              <div>
+                <p style={styles.optLabel}>ID de Tienda</p>
+                <input
+                  style={styles.input}
+                  type="text"
+                  placeholder="Ej: 123456"
+                  value={storeId}
+                  onChange={e => { setStoreId(e.target.value); setCredsSaved(false); }}
+                />
+              </div>
+              <div>
+                <p style={styles.optLabel}>API Token</p>
+                <input
+                  style={styles.input}
+                  type="password"
+                  placeholder="Token de acceso"
+                  value={apiToken}
+                  onChange={e => { setApiToken(e.target.value); setCredsSaved(false); }}
+                />
+              </div>
+            </div>
+            <div style={styles.credsFooter}>
+              <button
+                style={{ ...styles.btnSave, ...(credsSaved ? styles.btnSaved : {}) }}
+                onClick={saveCredentials}
+                disabled={!storeId || !apiToken}
+              >
+                {credsSaved ? '✓ Guardado' : 'Guardar'}
+              </button>
+              {credsSaved && <span style={styles.credsBadge}>Conectado a tienda #{storeId}</span>}
+            </div>
+          </div>
+
           {/* Upload */}
           <div style={styles.card}>
             <div
@@ -152,7 +210,7 @@ export default function Home() {
               </div>
 
               {resultado.no_resueltos > 0 && (
-                <div style={styles.warn}>⚠ {resultado.no_resueltos} etiqueta(s) no se pudieron identificar por el peso.</div>
+                <div style={styles.warn}>⚠ {resultado.no_resueltos} etiqueta(s) no se pudieron identificar (orden no encontrada o credenciales no configuradas).</div>
               )}
 
               <button style={styles.btnDownload} onClick={descargar}>
@@ -174,6 +232,13 @@ const styles = {
   container: { maxWidth: 820, margin: '40px auto', padding: '0 20px' },
   card: { background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: 28, marginBottom: 20 },
   cardTitle: { fontSize: 15, fontWeight: 600, marginBottom: 16, color: '#333' },
+  helpText: { fontSize: 12, color: '#888', marginBottom: 14, marginTop: -8 },
+  credsGrid: { display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 },
+  input: { width: '100%', border: '1px solid #e0e0e0', borderRadius: 6, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
+  credsFooter: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 },
+  btnSave: { background: '#1a1a1a', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' },
+  btnSaved: { background: '#22a066' },
+  credsBadge: { fontSize: 12, color: '#22a066', fontWeight: 500 },
   dropZone: { border: '2px dashed #d0d0d0', borderRadius: 10, padding: '36px 20px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s', background: '#fafafa' },
   dropZoneActive: { borderColor: '#6060dd', background: '#f0f0ff' },
   dropZoneDone: { borderColor: '#22a066', background: '#f0faf5' },
