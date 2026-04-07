@@ -9,6 +9,7 @@ export default function Home() {
   const [ordenar, setOrdenar] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [stripPos, setStripPos] = useState('abajo');
   const [storeId, setStoreId] = useState('');
   const [apiToken, setApiToken] = useState('');
   const [credsSaved, setCredsSaved] = useState(false);
@@ -52,7 +53,7 @@ export default function Home() {
       const credentials = storeId && apiToken
         ? { storeId: storeId.trim(), token: apiToken.trim() }
         : null;
-      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials);
+      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPos);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
       setResultado(resumen);
@@ -164,6 +165,14 @@ export default function Home() {
                 <div style={styles.toggleGroup}>
                   <button style={{ ...styles.toggleBtn, ...(ordenar ? {} : styles.toggleActive) }} onClick={() => setOrdenar(false)}>Original</button>
                   <button style={{ ...styles.toggleBtn, ...(ordenar ? styles.toggleActive : {}) }} onClick={() => setOrdenar(true)}>Por producto</button>
+                </div>
+              </div>
+              <div>
+                <p style={styles.optLabel}>Posición de la etiqueta</p>
+                <div style={styles.toggleGroup}>
+                  <button style={{ ...styles.toggleBtn, ...(stripPos === 'abajo' ? styles.toggleActive : {}) }} onClick={() => setStripPos('abajo')}>Abajo</button>
+                  <button style={{ ...styles.toggleBtn, ...(stripPos === 'centro' ? styles.toggleActive : {}) }} onClick={() => setStripPos('centro')}>Centro</button>
+                  <button style={{ ...styles.toggleBtn, ...(stripPos === 'arriba' ? styles.toggleActive : {}) }} onClick={() => setStripPos('arriba')}>Arriba</button>
                 </div>
               </div>
               <button style={{ ...styles.btnPrimary, ...(!file || loading ? styles.btnDisabled : {}) }} onClick={procesar} disabled={!file || loading}>
