@@ -9,7 +9,8 @@ export default function Home() {
   const [ordenar, setOrdenar] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [stripPos, setStripPos] = useState('abajo');
+  const [stripPct, setStripPct] = useState(0.95); // 0 = arriba, 1 = abajo (default: casi abajo)
+  const previewRef = useRef();
   const [storeId, setStoreId] = useState('');
   const [apiToken, setApiToken] = useState('');
   const [credsSaved, setCredsSaved] = useState(false);
@@ -53,7 +54,7 @@ export default function Home() {
       const credentials = storeId && apiToken
         ? { storeId: storeId.trim(), token: apiToken.trim() }
         : null;
-      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPos);
+      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPct);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
       setResultado(resumen);
@@ -167,17 +168,66 @@ export default function Home() {
                   <button style={{ ...styles.toggleBtn, ...(ordenar ? styles.toggleActive : {}) }} onClick={() => setOrdenar(true)}>Por producto</button>
                 </div>
               </div>
-              <div>
-                <p style={styles.optLabel}>Posición de la etiqueta</p>
-                <div style={styles.toggleGroup}>
-                  <button style={{ ...styles.toggleBtn, ...(stripPos === 'abajo' ? styles.toggleActive : {}) }} onClick={() => setStripPos('abajo')}>Abajo</button>
-                  <button style={{ ...styles.toggleBtn, ...(stripPos === 'centro' ? styles.toggleActive : {}) }} onClick={() => setStripPos('centro')}>Centro</button>
-                  <button style={{ ...styles.toggleBtn, ...(stripPos === 'arriba' ? styles.toggleActive : {}) }} onClick={() => setStripPos('arriba')}>Arriba</button>
-                </div>
-              </div>
               <button style={{ ...styles.btnPrimary, ...(!file || loading ? styles.btnDisabled : {}) }} onClick={procesar} disabled={!file || loading}>
                 {loading ? 'Procesando...' : 'Generar PDF'}
               </button>
+            </div>
+
+            {/* Preview de etiqueta con drag */}
+            <div style={{ marginTop: 20 }}>
+              <p style={styles.optLabel}>Posición de la etiqueta — arrastrá la tira</p>
+              <div
+                ref={previewRef}
+                style={styles.preview}
+                onMouseMove={(e) => {
+                  if (e.buttons !== 1) return;
+                  const rect = previewRef.current.getBoundingClientRect();
+                  const stripH = 32;
+                  const y = e.clientY - rect.top;
+                  const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
+                  setStripPct(pct);
+                }}
+                onTouchMove={(e) => {
+                  const rect = previewRef.current.getBoundingClientRect();
+                  const stripH = 32;
+                  const y = e.touches[0].clientY - rect.top;
+                  const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
+                  setStripPct(pct);
+                }}
+              >
+                {/* Etiqueta mock */}
+                <div style={styles.previewLabel}>
+                  <div style={styles.mockHeader}>
+                    <div style={styles.mockLine} />
+                    <div style={{ ...styles.mockLine, width: '40%' }} />
+                  </div>
+                  <div style={styles.mockBarcode} />
+                  <div style={styles.mockOrderRow}>
+                    <span style={styles.mockOrderLabel}>Orden</span>
+                    <span style={styles.mockOrderNum}>#999999</span>
+                  </div>
+                  <div style={styles.mockAddress}>
+                    <div style={{ ...styles.mockLine, width: '75%' }} />
+                    <div style={{ ...styles.mockLine, width: '55%' }} />
+                    <div style={{ ...styles.mockLine, width: '65%' }} />
+                  </div>
+
+                  {/* Tira draggable */}
+                  <div
+                    style={{
+                      ...styles.previewStrip,
+                      top: `calc(${stripPct * 100}% - ${stripPct * 32}px)`,
+                    }}
+                  >
+                    <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
+                    <div style={styles.previewStripTags}>
+                      <span style={{ ...styles.previewTag, background: '#e1f5ee', color: '#085041' }}>Rodillera M</span>
+                      <span style={{ ...styles.previewTag, background: '#eeedfe', color: '#3c3489' }}>Gorro</span>
+                    </div>
+                  </div>
+                </div>
+                <p style={styles.previewHint}>Click y arrastrá hacia arriba o abajo</p>
+              </div>
             </div>
 
             {loading && (
@@ -277,4 +327,18 @@ const styles = {
   tagOther: { background: '#f0f0f0', color: '#555' },
   warn: { background: '#fff8e6', border: '1px solid #f0c060', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#7a5500', marginTop: 16 },
   btnDownload: { display: 'block', width: '100%', background: '#22a066', color: '#fff', border: 'none', padding: 14, borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: 'pointer', textAlign: 'center', marginTop: 20 },
+  preview: { userSelect: 'none', cursor: 'ns-resize', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
+  previewLabel: { position: 'relative', width: 220, height: 300, background: '#fff', border: '1px solid #d0d0d0', borderRadius: 6, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', overflow: 'hidden' },
+  mockHeader: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
+  mockLine: { height: 8, background: '#e8e8e8', borderRadius: 4, width: '60%' },
+  mockBarcode: { height: 36, background: 'repeating-linear-gradient(90deg, #333 0px, #333 2px, #fff 2px, #fff 4px)', borderRadius: 3, marginBottom: 12, opacity: 0.3 },
+  mockOrderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  mockOrderLabel: { fontSize: 10, color: '#aaa' },
+  mockOrderNum: { fontSize: 14, fontWeight: 700, color: '#333' },
+  mockAddress: { display: 'flex', flexDirection: 'column', gap: 5 },
+  previewStrip: { position: 'absolute', left: 8, right: 8, height: 32, background: '#f5f5ff', border: '1px solid #c8c8e0', borderRadius: 5, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 8px', pointerEvents: 'none', transition: 'top 0.05s ease-out' },
+  previewStripTitle: { fontSize: 5, color: '#8888aa', marginBottom: 2 },
+  previewStripTags: { display: 'flex', gap: 4 },
+  previewTag: { fontSize: 8, fontWeight: 600, padding: '1px 6px', borderRadius: 3 },
+  previewHint: { fontSize: 11, color: '#aaa', margin: 0 },
 };
