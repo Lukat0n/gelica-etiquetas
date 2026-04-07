@@ -119,7 +119,7 @@ export default function Home() {
           {/* Credenciales TiendaNube */}
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>Credenciales TiendaNube</h2>
-            <p style={styles.helpText}>Solo para etiquetas E-Pick. Se guardan en tu navegador.</p>
+            <p style={styles.helpText}>Necesario para buscar los productos de cada orden. Se guardan en tu navegador.</p>
             <div style={styles.credsGrid}>
               <div>
                 <p style={styles.optLabel}>ID de Tienda</p>
@@ -199,7 +199,7 @@ export default function Home() {
               ) : (
                 <>
                   <p style={styles.dropTitle}>Subí el PDF de etiquetas</p>
-                  <p style={styles.dropSub}>Cabify o E-Pick — arrastrá o hacé click</p>
+                  <p style={styles.dropSub}>Cabify, E-Pick, Correo Argentino, Andreani, etc. — arrastrá o hacé click</p>
                 </>
               )}
             </div>
@@ -291,8 +291,7 @@ export default function Home() {
               <h2 style={styles.cardTitle}>Resumen del lote</h2>
 
               <div style={styles.formatBadge}>
-                {resultado.formato === 'E-Pick' ? '📦 E-Pick' : '🚗 Cabify'}
-                {' · '}{resultado.total_paquetes} paquetes · {resultado.total_productos} productos
+                {resultado.formato} · {resultado.total_paquetes} paquetes · {resultado.total_productos} productos
               </div>
 
               <div style={styles.twoCol}>
