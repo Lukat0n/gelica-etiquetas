@@ -338,7 +338,7 @@ export default function Home() {
                           <span key={j} style={{ ...styles.comboTag, ...tagClass(p.prod) }}>{p.label}</span>
                         ))}
                       </div>
-                      <span style={styles.badge}>{count} paq.</span>
+                      <span style={styles.badge}>x{count}</span>
                       <button style={styles.sortBtn} onClick={() => moveCombo(i, -1)} disabled={i === 0}>&#9650;</button>
                       <button style={styles.sortBtn} onClick={() => moveCombo(i, 1)} disabled={i === comboOrder.length - 1}>&#9660;</button>
                     </div>
@@ -351,7 +351,7 @@ export default function Home() {
                     <div style={{ ...styles.comboTags, flex: 1 }}>
                       <span style={{ fontSize: 13, color: '#999', fontStyle: 'italic' }}>No identificados</span>
                     </div>
-                    <span style={styles.badge}>{resultado.no_resueltos} paq.</span>
+                    <span style={styles.badge}>x{resultado.no_resueltos}</span>
                   </div>
                 )}
               </div>
