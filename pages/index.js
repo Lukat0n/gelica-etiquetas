@@ -18,6 +18,8 @@ export default function Home() {
   const [credsSaved, setCredsSaved] = useState(false);
   const [aliases, setAliases] = useState({});
   const [comboOrder, setComboOrder] = useState([]);
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
   const inputRef = useRef();
 
   useEffect(() => {
@@ -121,7 +123,28 @@ export default function Home() {
     if (target < 0 || target >= newOrder.length) return;
     [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
     setComboOrder(newOrder);
-    setPdfBlob(null); // Invalidar PDF si cambia el orden
+    setPdfBlob(null);
+  };
+
+  const handleDragStart = (idx) => {
+    setDragIdx(idx);
+  };
+
+  const handleDragOver = (e, idx) => {
+    e.preventDefault();
+    if (dragOverIdx !== idx) setDragOverIdx(idx);
+  };
+
+  const handleDragEnd = () => {
+    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+      const newOrder = [...comboOrder];
+      const [moved] = newOrder.splice(dragIdx, 1);
+      newOrder.splice(dragOverIdx, 0, moved);
+      setComboOrder(newOrder);
+      setPdfBlob(null);
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
   };
 
   const tagClass = (prod) => {
@@ -130,6 +153,14 @@ export default function Home() {
     if (prod.includes('Tobillera')) return styles.tagTob;
     if (prod.includes('Codera')) return styles.tagCod;
     return styles.tagOther;
+  };
+
+  // Parsea "2x Rodillera M + Tobillera" → [{ label: '2x Rodillera M', prod: 'Rodillera M' }, { label: 'Tobillera', prod: 'Tobillera' }]
+  const parseComboDesc = (desc) => {
+    return desc.split(' + ').map(part => {
+      const m = part.match(/^(\d+x\s+)?(.+)$/);
+      return { label: part, prod: m ? m[2].trim() : part };
+    });
   };
 
   // Productos únicos encontrados en el análisis
@@ -279,15 +310,34 @@ export default function Home() {
           {resultado && comboOrder.length > 0 && (
             <div style={styles.card}>
               <h2 style={styles.cardTitle}>3. Ordená las agrupaciones</h2>
-              <p style={styles.helpText}>Las etiquetas se van a agrupar en este orden en el PDF final. Usá las flechas para reordenar.</p>
+              <p style={styles.helpText}>Arrastrá las filas o usá las flechas para reordenar. Así se agrupan en el PDF final.</p>
 
               <div style={styles.sortList}>
                 {comboOrder.map((desc, i) => {
                   const count = resultado.combinaciones.find(c => c.desc === desc)?.count || 0;
+                  const parts = parseComboDesc(desc);
+                  const isDragging = dragIdx === i;
+                  const isOver = dragOverIdx === i && dragIdx !== i;
                   return (
-                    <div key={desc} style={styles.sortRow}>
+                    <div
+                      key={desc}
+                      draggable
+                      onDragStart={() => handleDragStart(i)}
+                      onDragOver={(e) => handleDragOver(e, i)}
+                      onDragEnd={handleDragEnd}
+                      style={{
+                        ...styles.sortRow,
+                        ...(isDragging ? styles.sortRowDragging : {}),
+                        ...(isOver ? styles.sortRowOver : {}),
+                      }}
+                    >
+                      <span style={styles.dragHandle}>⠿</span>
                       <span style={styles.sortNum}>{i + 1}</span>
-                      <span style={styles.comboDesc2}>{desc}</span>
+                      <div style={styles.comboTags}>
+                        {parts.map((p, j) => (
+                          <span key={j} style={{ ...styles.comboTag, ...tagClass(p.prod) }}>{p.label}</span>
+                        ))}
+                      </div>
                       <span style={styles.badge}>{count} paq.</span>
                       <button style={styles.sortBtn} onClick={() => moveCombo(i, -1)} disabled={i === 0}>&#9650;</button>
                       <button style={styles.sortBtn} onClick={() => moveCombo(i, 1)} disabled={i === comboOrder.length - 1}>&#9660;</button>
@@ -296,8 +346,11 @@ export default function Home() {
                 })}
                 {resultado.no_resueltos > 0 && (
                   <div style={styles.sortRow}>
+                    <span style={{ width: 20 }} />
                     <span style={styles.sortNum}>-</span>
-                    <span style={{ ...styles.comboDesc2, color: '#999', fontStyle: 'italic' }}>No identificados</span>
+                    <div style={{ ...styles.comboTags, flex: 1 }}>
+                      <span style={{ fontSize: 13, color: '#999', fontStyle: 'italic' }}>No identificados</span>
+                    </div>
                     <span style={styles.badge}>{resultado.no_resueltos} paq.</span>
                   </div>
                 )}
@@ -454,8 +507,13 @@ const styles = {
   previewHint: { fontSize: 11, color: '#aaa', margin: 0 },
   aliasInput: { width: 80, border: '1px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
   aliasHidden: { fontSize: 11, color: '#cc4444', fontStyle: 'italic' },
-  sortList: { display: 'flex', flexDirection: 'column', gap: 4 },
-  sortRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5' },
-  sortNum: { fontSize: 11, color: '#aaa', fontWeight: 600, width: 18, textAlign: 'center' },
-  sortBtn: { background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 4, width: 28, height: 24, cursor: 'pointer', fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  sortList: { display: 'flex', flexDirection: 'column', gap: 2 },
+  sortRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid transparent', background: '#fafafa', cursor: 'grab', transition: 'all 0.15s', userSelect: 'none' },
+  sortRowDragging: { opacity: 0.4, background: '#f0f0ff' },
+  sortRowOver: { borderColor: '#6060dd', background: '#f5f5ff' },
+  sortNum: { fontSize: 11, color: '#aaa', fontWeight: 600, width: 18, textAlign: 'center', flexShrink: 0 },
+  dragHandle: { fontSize: 14, color: '#bbb', cursor: 'grab', flexShrink: 0, lineHeight: 1 },
+  comboTags: { display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center' },
+  comboTag: { display: 'inline-block', padding: '3px 10px', borderRadius: 5, fontSize: 12, fontWeight: 600 },
+  sortBtn: { background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 4, width: 28, height: 24, cursor: 'pointer', fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 };
