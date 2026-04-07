@@ -1,31 +1,24 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Head from 'next/head';
-import { processPDF, DEFAULT_PRODUCTS } from '../lib/pdfProcessor';
+import { analyzePDF, generatePDF, DEFAULT_PRODUCTS } from '../lib/pdfProcessor';
 
 export default function Home() {
   const [file, setFile] = useState(null);
+  const [arrayBuffer, setArrayBuffer] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [resultado, setResultado] = useState(null);
-  const [ordenar, setOrdenar] = useState(false);
+  const [labels, setLabels] = useState(null);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [stripPct, setStripPct] = useState(0.95); // 0 = arriba, 1 = abajo (default: casi abajo)
+  const [stripPct, setStripPct] = useState(0.95);
   const previewRef = useRef();
   const [storeId, setStoreId] = useState('');
   const [apiToken, setApiToken] = useState('');
   const [credsSaved, setCredsSaved] = useState(false);
   const [aliases, setAliases] = useState({});
-  const [sortOrder, setSortOrder] = useState(null);
+  const [comboOrder, setComboOrder] = useState([]);
   const inputRef = useRef();
-
-  // Todos los productos con talles que pueden aparecer
-  const ALL_PRODUCTS = [
-    'Gorro', 'Rodillera S', 'Rodillera M', 'Rodillera L', 'Rodillera XL',
-    'Tobillera', 'Codera S', 'Codera M', 'Codera L',
-    'Medias Spa', 'Taloneras', 'Handgrip', 'Guantes', 'Faja Lumbar',
-  ];
-
-  const DEFAULT_SORT_ORDER = [...ALL_PRODUCTS];
 
   useEffect(() => {
     const id    = localStorage.getItem('tn_store_id')  || '';
@@ -37,27 +30,12 @@ export default function Home() {
       const saved = JSON.parse(localStorage.getItem('tn_aliases') || '{}');
       if (Object.keys(saved).length) setAliases(saved);
     } catch {}
-    try {
-      const savedOrder = JSON.parse(localStorage.getItem('tn_sort_order'));
-      if (Array.isArray(savedOrder) && savedOrder.length) setSortOrder(savedOrder);
-    } catch {}
   }, []);
 
   const saveCredentials = () => {
     localStorage.setItem('tn_store_id',  storeId.trim());
     localStorage.setItem('tn_api_token', apiToken.trim());
     setCredsSaved(true);
-  };
-
-  const currentSortOrder = sortOrder || DEFAULT_SORT_ORDER;
-
-  const moveSortItem = (index, direction) => {
-    const newOrder = [...currentSortOrder];
-    const target = index + direction;
-    if (target < 0 || target >= newOrder.length) return;
-    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
-    setSortOrder(newOrder);
-    localStorage.setItem('tn_sort_order', JSON.stringify(newOrder));
   };
 
   const updateAlias = (product, value) => {
@@ -70,7 +48,10 @@ export default function Home() {
     if (f && f.type === 'application/pdf') {
       setFile(f);
       setResultado(null);
+      setLabels(null);
       setPdfBlob(null);
+      setComboOrder([]);
+      setArrayBuffer(null);
     }
   };
 
@@ -81,24 +62,46 @@ export default function Home() {
     handleFile(f);
   }, []);
 
-  const procesar = async () => {
+  // Fase 1: Analizar PDF
+  const analizar = async () => {
     if (!file) return;
     setLoading(true);
     setResultado(null);
+    setLabels(null);
+    setPdfBlob(null);
     try {
-      const arrayBuffer = await file.arrayBuffer();
+      const buf = await file.arrayBuffer();
+      setArrayBuffer(buf);
       const credentials = storeId && apiToken
         ? { storeId: storeId.trim(), token: apiToken.trim() }
         : null;
-      const { pdfBytes, resumen } = await processPDF(arrayBuffer, ordenar, DEFAULT_PRODUCTS, credentials, stripPct, aliases, currentSortOrder);
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      setPdfBlob(blob);
+      const { labels: parsedLabels, resumen } = await analyzePDF(buf, DEFAULT_PRODUCTS, credentials);
+      setLabels(parsedLabels);
       setResultado(resumen);
+      // Inicializar orden de combos con el orden por defecto (por cantidad desc)
+      setComboOrder(resumen.combinaciones.map(c => c.desc));
     } catch (e) {
-      alert('Error procesando el PDF: ' + e.message);
+      alert('Error analizando el PDF: ' + e.message);
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fase 2: Generar PDF final
+  const generar = async () => {
+    if (!labels || !arrayBuffer) return;
+    setGenerating(true);
+    setPdfBlob(null);
+    try {
+      const pdfBytes = await generatePDF(arrayBuffer, labels, comboOrder, stripPct, aliases);
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      setPdfBlob(blob);
+    } catch (e) {
+      alert('Error generando el PDF: ' + e.message);
+      console.error(e);
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -112,6 +115,15 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const moveCombo = (index, direction) => {
+    const newOrder = [...comboOrder];
+    const target = index + direction;
+    if (target < 0 || target >= newOrder.length) return;
+    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
+    setComboOrder(newOrder);
+    setPdfBlob(null); // Invalidar PDF si cambia el orden
+  };
+
   const tagClass = (prod) => {
     if (prod.includes('Gorro')) return styles.tagGorro;
     if (prod.includes('Rodillera')) return styles.tagRod;
@@ -119,6 +131,9 @@ export default function Home() {
     if (prod.includes('Codera')) return styles.tagCod;
     return styles.tagOther;
   };
+
+  // Productos únicos encontrados en el análisis
+  const productosEncontrados = resultado ? Object.keys(resultado.por_producto) : [];
 
   return (
     <>
@@ -172,58 +187,9 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Aliases de productos */}
+          {/* Paso 1: Subir PDF */}
           <div style={styles.card}>
-            <h2 style={styles.cardTitle}>Nombres en etiqueta</h2>
-            <p style={styles.helpText}>Personalizá cómo aparece cada producto en la etiqueta. Dejá vacío para ocultarlo.</p>
-            <div style={styles.aliasGrid}>
-              {ALL_PRODUCTS.map(prod => (
-                <div key={prod} style={styles.aliasRow}>
-                  <span style={{ ...styles.tag, ...tagClass(prod), fontSize: 11 }}>{prod}</span>
-                  <input
-                    style={styles.aliasInput}
-                    type="text"
-                    placeholder={prod}
-                    value={aliases[prod] !== undefined ? aliases[prod] : ''}
-                    onChange={e => updateAlias(prod, e.target.value)}
-                  />
-                  {aliases[prod] !== undefined && aliases[prod] !== '' && (
-                    <span style={styles.aliasPreview}>{aliases[prod]}</span>
-                  )}
-                  {aliases[prod] === '' && (
-                    <span style={styles.aliasHidden}>oculto</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Orden de prioridad */}
-          <div style={styles.card}>
-            <h2 style={styles.cardTitle}>Orden de agrupación</h2>
-            <p style={styles.helpText}>Cuando elegís "Por producto", las etiquetas se agrupan en este orden. Usá las flechas para reordenar.</p>
-            <div style={styles.sortList}>
-              {currentSortOrder.map((prod, i) => (
-                <div key={prod} style={styles.sortRow}>
-                  <span style={styles.sortNum}>{i + 1}</span>
-                  <span style={{ ...styles.tag, ...tagClass(prod), fontSize: 11, flex: 1 }}>{prod}</span>
-                  <button
-                    style={styles.sortBtn}
-                    onClick={() => moveSortItem(i, -1)}
-                    disabled={i === 0}
-                  >&#9650;</button>
-                  <button
-                    style={styles.sortBtn}
-                    onClick={() => moveSortItem(i, 1)}
-                    disabled={i === currentSortOrder.length - 1}
-                  >&#9660;</button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Upload */}
-          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>1. Subí el PDF de etiquetas</h2>
             <div
               style={{ ...styles.dropZone, ...(dragging ? styles.dropZoneActive : {}), ...(file ? styles.dropZoneDone : {}) }}
               onClick={() => inputRef.current.click()}
@@ -240,85 +206,21 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <p style={styles.dropTitle}>Subí el PDF de etiquetas</p>
-                  <p style={styles.dropSub}>Cabify, E-Pick, Correo Argentino, Andreani, etc. — arrastrá o hacé click</p>
+                  <p style={styles.dropTitle}>Arrastrá o hacé click</p>
+                  <p style={styles.dropSub}>Cabify, E-Pick, Correo Argentino, Andreani, etc.</p>
                 </>
               )}
             </div>
 
-            <div style={styles.optionsRow}>
-              <div>
-                <p style={styles.optLabel}>Orden de etiquetas</p>
-                <div style={styles.toggleGroup}>
-                  <button style={{ ...styles.toggleBtn, ...(ordenar ? {} : styles.toggleActive) }} onClick={() => setOrdenar(false)}>Original</button>
-                  <button style={{ ...styles.toggleBtn, ...(ordenar ? styles.toggleActive : {}) }} onClick={() => setOrdenar(true)}>Por producto</button>
-                </div>
-              </div>
-              <button style={{ ...styles.btnPrimary, ...(!file || loading ? styles.btnDisabled : {}) }} onClick={procesar} disabled={!file || loading}>
-                {loading ? 'Procesando...' : 'Generar PDF'}
-              </button>
-            </div>
-
-            {/* Preview de etiqueta con drag */}
-            <div style={{ marginTop: 20 }}>
-              <p style={styles.optLabel}>Posición de la etiqueta — arrastrá la tira</p>
-              <div
-                ref={previewRef}
-                style={styles.preview}
-                onMouseMove={(e) => {
-                  if (e.buttons !== 1) return;
-                  const rect = previewRef.current.getBoundingClientRect();
-                  const stripH = 32;
-                  const y = e.clientY - rect.top;
-                  const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
-                  setStripPct(pct);
-                }}
-                onTouchMove={(e) => {
-                  const rect = previewRef.current.getBoundingClientRect();
-                  const stripH = 32;
-                  const y = e.touches[0].clientY - rect.top;
-                  const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
-                  setStripPct(pct);
-                }}
+            {file && !resultado && (
+              <button
+                style={{ ...styles.btnPrimary, marginTop: 16, ...(!file || loading ? styles.btnDisabled : {}) }}
+                onClick={analizar}
+                disabled={!file || loading}
               >
-                {/* Etiqueta mock */}
-                <div style={styles.previewLabel}>
-                  <div style={styles.mockHeader}>
-                    <div style={styles.mockLine} />
-                    <div style={{ ...styles.mockLine, width: '40%' }} />
-                  </div>
-                  <div style={styles.mockBarcode} />
-                  <div style={styles.mockOrderRow}>
-                    <span style={styles.mockOrderLabel}>Orden</span>
-                    <span style={styles.mockOrderNum}>#999999</span>
-                  </div>
-                  <div style={styles.mockAddress}>
-                    <div style={{ ...styles.mockLine, width: '75%' }} />
-                    <div style={{ ...styles.mockLine, width: '55%' }} />
-                    <div style={{ ...styles.mockLine, width: '65%' }} />
-                  </div>
-
-                  {/* Tira draggable */}
-                  <div
-                    style={{
-                      ...styles.previewStrip,
-                      top: `calc(${stripPct * 100}% - ${stripPct * 32}px)`,
-                    }}
-                  >
-                    <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
-                    <div style={styles.previewStripTags}>
-                      <span style={{ ...styles.previewTag, background: '#e1f5ee', color: '#085041' }}>
-                        {aliases['Rodillera M'] !== undefined ? (aliases['Rodillera M'] || null) : 'Rodillera M'}
-                      </span>
-                      <span style={{ ...styles.previewTag, background: '#eeedfe', color: '#3c3489' }}>
-                        {aliases['Gorro'] !== undefined ? (aliases['Gorro'] || null) : 'Gorro'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <p style={styles.previewHint}>Click y arrastrá hacia arriba o abajo</p>
-              </div>
-            </div>
+                {loading ? 'Analizando...' : 'Analizar PDF'}
+              </button>
+            )}
 
             {loading && (
               <div style={styles.loadingBar}>
@@ -327,14 +229,20 @@ export default function Home() {
             )}
           </div>
 
-          {/* Resultado */}
+          {/* Paso 2: Resumen + Configuración */}
           {resultado && (
             <div style={styles.card}>
-              <h2 style={styles.cardTitle}>Resumen del lote</h2>
+              <h2 style={styles.cardTitle}>2. Revisá el contenido</h2>
 
               <div style={styles.formatBadge}>
                 {resultado.formato} · {resultado.total_paquetes} paquetes · {resultado.total_productos} productos
               </div>
+
+              {resultado.no_resueltos > 0 && (
+                <div style={styles.warn}>
+                  {resultado.no_resueltos} etiqueta(s) no se pudieron identificar (orden no encontrada o credenciales no configuradas).
+                </div>
+              )}
 
               <div style={styles.twoCol}>
                 <div>
@@ -347,23 +255,139 @@ export default function Home() {
                   ))}
                 </div>
                 <div>
-                  <p style={styles.sectionTitle}>Combinaciones</p>
-                  {resultado.combinaciones.map((c, i) => (
-                    <div key={i} style={styles.listItem}>
-                      <span style={styles.comboDesc}>{c.desc}</span>
-                      <span style={styles.badge}>{c.count} paq.</span>
+                  <p style={styles.sectionTitle}>Nombres en etiqueta</p>
+                  <p style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>Dejá vacío para ocultar</p>
+                  {productosEncontrados.map(prod => (
+                    <div key={prod} style={{ ...styles.listItem, gap: 8 }}>
+                      <span style={{ ...styles.tag, ...tagClass(prod), fontSize: 11 }}>{prod}</span>
+                      <input
+                        style={styles.aliasInput}
+                        type="text"
+                        placeholder={prod}
+                        value={aliases[prod] !== undefined ? aliases[prod] : ''}
+                        onChange={e => updateAlias(prod, e.target.value)}
+                      />
+                      {aliases[prod] === '' && <span style={styles.aliasHidden}>oculto</span>}
                     </div>
                   ))}
                 </div>
               </div>
+            </div>
+          )}
 
-              {resultado.no_resueltos > 0 && (
-                <div style={styles.warn}>⚠ {resultado.no_resueltos} etiqueta(s) no se pudieron identificar (orden no encontrada o credenciales no configuradas).</div>
+          {/* Paso 3: Ordenar combinaciones */}
+          {resultado && comboOrder.length > 0 && (
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>3. Ordená las agrupaciones</h2>
+              <p style={styles.helpText}>Las etiquetas se van a agrupar en este orden en el PDF final. Usá las flechas para reordenar.</p>
+
+              <div style={styles.sortList}>
+                {comboOrder.map((desc, i) => {
+                  const count = resultado.combinaciones.find(c => c.desc === desc)?.count || 0;
+                  return (
+                    <div key={desc} style={styles.sortRow}>
+                      <span style={styles.sortNum}>{i + 1}</span>
+                      <span style={styles.comboDesc2}>{desc}</span>
+                      <span style={styles.badge}>{count} paq.</span>
+                      <button style={styles.sortBtn} onClick={() => moveCombo(i, -1)} disabled={i === 0}>&#9650;</button>
+                      <button style={styles.sortBtn} onClick={() => moveCombo(i, 1)} disabled={i === comboOrder.length - 1}>&#9660;</button>
+                    </div>
+                  );
+                })}
+                {resultado.no_resueltos > 0 && (
+                  <div style={styles.sortRow}>
+                    <span style={styles.sortNum}>-</span>
+                    <span style={{ ...styles.comboDesc2, color: '#999', fontStyle: 'italic' }}>No identificados</span>
+                    <span style={styles.badge}>{resultado.no_resueltos} paq.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Paso 4: Posición + Generar */}
+          {resultado && (
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>4. Posición y generar</h2>
+
+              {/* Preview de etiqueta con drag */}
+              <div style={{ marginBottom: 20 }}>
+                <p style={styles.optLabel}>Posición de la tira — arrastrá para mover</p>
+                <div
+                  ref={previewRef}
+                  style={styles.preview}
+                  onMouseMove={(e) => {
+                    if (e.buttons !== 1) return;
+                    const rect = previewRef.current.getBoundingClientRect();
+                    const stripH = 32;
+                    const y = e.clientY - rect.top;
+                    const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
+                    setStripPct(pct);
+                  }}
+                  onTouchMove={(e) => {
+                    const rect = previewRef.current.getBoundingClientRect();
+                    const stripH = 32;
+                    const y = e.touches[0].clientY - rect.top;
+                    const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
+                    setStripPct(pct);
+                  }}
+                >
+                  <div style={styles.previewLabel}>
+                    <div style={styles.mockHeader}>
+                      <div style={styles.mockLine} />
+                      <div style={{ ...styles.mockLine, width: '40%' }} />
+                    </div>
+                    <div style={styles.mockBarcode} />
+                    <div style={styles.mockOrderRow}>
+                      <span style={styles.mockOrderLabel}>Orden</span>
+                      <span style={styles.mockOrderNum}>#999999</span>
+                    </div>
+                    <div style={styles.mockAddress}>
+                      <div style={{ ...styles.mockLine, width: '75%' }} />
+                      <div style={{ ...styles.mockLine, width: '55%' }} />
+                      <div style={{ ...styles.mockLine, width: '65%' }} />
+                    </div>
+                    <div
+                      style={{
+                        ...styles.previewStrip,
+                        top: `calc(${stripPct * 100}% - ${stripPct * 32}px)`,
+                      }}
+                    >
+                      <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
+                      <div style={styles.previewStripTags}>
+                        {productosEncontrados.slice(0, 2).map(prod => {
+                          const display = aliases[prod] !== undefined ? aliases[prod] : prod;
+                          if (!display) return null;
+                          return (
+                            <span key={prod} style={{ ...styles.previewTag, ...tagClass(prod) }}>{display}</span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <p style={styles.previewHint}>Click y arrastrá hacia arriba o abajo</p>
+                </div>
+              </div>
+
+              <button
+                style={{ ...styles.btnGenerar, ...(generating ? styles.btnDisabled : {}) }}
+                onClick={generar}
+                disabled={generating}
+              >
+                {generating ? 'Generando...' : 'Generar PDF'}
+              </button>
+
+              {generating && (
+                <div style={styles.loadingBar}>
+                  <div style={styles.loadingInner} />
+                </div>
               )}
 
-              <button style={styles.btnDownload} onClick={descargar}>
-                ⬇ Descargar PDF con productos
-              </button>
+              {pdfBlob && (
+                <button style={styles.btnDownload} onClick={descargar}>
+                  Descargar PDF con productos
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -393,11 +417,7 @@ const styles = {
   dropIcon: { fontSize: 32, marginBottom: 8 },
   dropTitle: { fontSize: 15, fontWeight: 500, color: '#1a1a1a', margin: 0 },
   dropSub: { fontSize: 13, color: '#999', margin: '4px 0 0' },
-  optionsRow: { display: 'flex', gap: 16, alignItems: 'flex-end', marginTop: 20, flexWrap: 'wrap' },
   optLabel: { fontSize: 12, color: '#888', marginBottom: 6 },
-  toggleGroup: { display: 'flex', background: '#f0f0f0', borderRadius: 8, padding: 3, gap: 3 },
-  toggleBtn: { padding: '7px 16px', borderRadius: 6, border: 'none', fontSize: 13, cursor: 'pointer', background: 'transparent', color: '#666' },
-  toggleActive: { background: '#fff', color: '#1a1a1a', fontWeight: 500, boxShadow: '0 1px 3px rgba(0,0,0,0.12)' },
   btnPrimary: { background: '#1a1a1a', color: '#fff', border: 'none', padding: '11px 28px', borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: 'pointer' },
   btnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   loadingBar: { height: 3, background: '#f0f0f0', borderRadius: 2, marginTop: 16, overflow: 'hidden' },
@@ -406,16 +426,18 @@ const styles = {
   twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 },
   sectionTitle: { fontSize: 11, fontWeight: 600, color: '#999', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 },
   listItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f5f5f5' },
-  badge: { background: '#f0f0f0', borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' },
+  badge: { background: '#f0f0f0', borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555', whiteSpace: 'nowrap' },
   comboDesc: { fontSize: 13, color: '#333' },
+  comboDesc2: { fontSize: 13, color: '#333', flex: 1 },
   tag: { display: 'inline-block', padding: '2px 10px', borderRadius: 4, fontSize: 12, fontWeight: 500 },
   tagGorro: { background: '#eeedfe', color: '#3c3489' },
   tagRod: { background: '#e1f5ee', color: '#085041' },
   tagTob: { background: '#faeeda', color: '#633806' },
   tagCod: { background: '#fce8f3', color: '#7a1040' },
   tagOther: { background: '#f0f0f0', color: '#555' },
-  warn: { background: '#fff8e6', border: '1px solid #f0c060', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#7a5500', marginTop: 16 },
-  btnDownload: { display: 'block', width: '100%', background: '#22a066', color: '#fff', border: 'none', padding: 14, borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: 'pointer', textAlign: 'center', marginTop: 20 },
+  warn: { background: '#fff8e6', border: '1px solid #f0c060', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#7a5500', marginBottom: 16 },
+  btnGenerar: { display: 'block', width: '100%', background: '#1a1a1a', color: '#fff', border: 'none', padding: 14, borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: 'pointer', textAlign: 'center' },
+  btnDownload: { display: 'block', width: '100%', background: '#22a066', color: '#fff', border: 'none', padding: 14, borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: 'pointer', textAlign: 'center', marginTop: 12 },
   preview: { userSelect: 'none', cursor: 'ns-resize', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
   previewLabel: { position: 'relative', width: 220, height: 300, background: '#fff', border: '1px solid #d0d0d0', borderRadius: 6, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', overflow: 'hidden' },
   mockHeader: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
@@ -430,13 +452,10 @@ const styles = {
   previewStripTags: { display: 'flex', gap: 4 },
   previewTag: { fontSize: 8, fontWeight: 600, padding: '1px 6px', borderRadius: 3 },
   previewHint: { fontSize: 11, color: '#aaa', margin: 0 },
-  aliasGrid: { display: 'flex', flexDirection: 'column', gap: 6 },
-  aliasRow: { display: 'flex', alignItems: 'center', gap: 10 },
-  aliasInput: { width: 100, border: '1px solid #e0e0e0', borderRadius: 6, padding: '5px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
-  aliasPreview: { fontSize: 11, color: '#22a066', fontWeight: 600 },
+  aliasInput: { width: 80, border: '1px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
   aliasHidden: { fontSize: 11, color: '#cc4444', fontStyle: 'italic' },
   sortList: { display: 'flex', flexDirection: 'column', gap: 4 },
-  sortRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' },
+  sortRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5' },
   sortNum: { fontSize: 11, color: '#aaa', fontWeight: 600, width: 18, textAlign: 'center' },
   sortBtn: { background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 4, width: 28, height: 24, cursor: 'pointer', fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };
