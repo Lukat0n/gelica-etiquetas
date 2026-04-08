@@ -11,8 +11,6 @@ export default function Home() {
   const [labels, setLabels] = useState(null);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [stripPct, setStripPct] = useState(0.95);
-  const previewRef = useRef();
   const [storeId, setStoreId] = useState('');
   const [apiToken, setApiToken] = useState('');
   const [credsSaved, setCredsSaved] = useState(false);
@@ -20,6 +18,7 @@ export default function Home() {
   const [comboOrder, setComboOrder] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [stripSize, setStripSize] = useState('normal');
   const inputRef = useRef();
 
   useEffect(() => {
@@ -96,7 +95,7 @@ export default function Home() {
     setGenerating(true);
     setPdfBlob(null);
     try {
-      const pdfBytes = await generatePDF(arrayBuffer, labels, comboOrder, stripPct, aliases);
+      const pdfBytes = await generatePDF(arrayBuffer, labels, comboOrder, aliases, stripSize);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
     } catch (e) {
@@ -358,67 +357,31 @@ export default function Home() {
             </div>
           )}
 
-          {/* Paso 4: Posición + Generar */}
+          {/* Paso 4: Generar */}
           {resultado && (
             <div style={styles.card}>
-              <h2 style={styles.cardTitle}>4. Posición y generar</h2>
+              <h2 style={styles.cardTitle}>4. Generá el PDF</h2>
+              <p style={styles.helpText}>La tira con el contenido se agrega como pie en cada etiqueta, sin tapar nada.</p>
 
-              {/* Preview de etiqueta con drag */}
-              <div style={{ marginBottom: 20 }}>
-                <p style={styles.optLabel}>Posición de la tira — arrastrá para mover</p>
-                <div
-                  ref={previewRef}
-                  style={styles.preview}
-                  onMouseMove={(e) => {
-                    if (e.buttons !== 1) return;
-                    const rect = previewRef.current.getBoundingClientRect();
-                    const stripH = 32;
-                    const y = e.clientY - rect.top;
-                    const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
-                    setStripPct(pct);
-                  }}
-                  onTouchMove={(e) => {
-                    const rect = previewRef.current.getBoundingClientRect();
-                    const stripH = 32;
-                    const y = e.touches[0].clientY - rect.top;
-                    const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
-                    setStripPct(pct);
-                  }}
-                >
-                  <div style={styles.previewLabel}>
-                    <div style={styles.mockHeader}>
-                      <div style={styles.mockLine} />
-                      <div style={{ ...styles.mockLine, width: '40%' }} />
-                    </div>
-                    <div style={styles.mockBarcode} />
-                    <div style={styles.mockOrderRow}>
-                      <span style={styles.mockOrderLabel}>Orden</span>
-                      <span style={styles.mockOrderNum}>#999999</span>
-                    </div>
-                    <div style={styles.mockAddress}>
-                      <div style={{ ...styles.mockLine, width: '75%' }} />
-                      <div style={{ ...styles.mockLine, width: '55%' }} />
-                      <div style={{ ...styles.mockLine, width: '65%' }} />
-                    </div>
-                    <div
+              <div style={{ marginBottom: 18 }}>
+                <p style={styles.optLabel}>Tamaño de la tira de productos</p>
+                <div style={styles.sizeSelector}>
+                  {[
+                    { key: 'chica', label: 'Chica' },
+                    { key: 'normal', label: 'Normal' },
+                    { key: 'grande', label: 'Grande' },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
                       style={{
-                        ...styles.previewStrip,
-                        top: `calc(${stripPct * 100}% - ${stripPct * 32}px)`,
+                        ...styles.sizeBtn,
+                        ...(stripSize === opt.key ? styles.sizeBtnActive : {}),
                       }}
+                      onClick={() => { setStripSize(opt.key); setPdfBlob(null); }}
                     >
-                      <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
-                      <div style={styles.previewStripTags}>
-                        {productosEncontrados.slice(0, 2).map(prod => {
-                          const display = aliases[prod] !== undefined ? aliases[prod] : prod;
-                          if (!display) return null;
-                          return (
-                            <span key={prod} style={{ ...styles.previewTag, ...tagClass(prod) }}>{display}</span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                  <p style={styles.previewHint}>Click y arrastrá hacia arriba o abajo</p>
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -491,20 +454,6 @@ const styles = {
   warn: { background: '#fff8e6', border: '1px solid #f0c060', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#7a5500', marginBottom: 16 },
   btnGenerar: { display: 'block', width: '100%', background: '#1a1a1a', color: '#fff', border: 'none', padding: 14, borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: 'pointer', textAlign: 'center' },
   btnDownload: { display: 'block', width: '100%', background: '#22a066', color: '#fff', border: 'none', padding: 14, borderRadius: 8, fontSize: 15, fontWeight: 500, cursor: 'pointer', textAlign: 'center', marginTop: 12 },
-  preview: { userSelect: 'none', cursor: 'ns-resize', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
-  previewLabel: { position: 'relative', width: 220, height: 300, background: '#fff', border: '1px solid #d0d0d0', borderRadius: 6, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', overflow: 'hidden' },
-  mockHeader: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
-  mockLine: { height: 8, background: '#e8e8e8', borderRadius: 4, width: '60%' },
-  mockBarcode: { height: 36, background: 'repeating-linear-gradient(90deg, #333 0px, #333 2px, #fff 2px, #fff 4px)', borderRadius: 3, marginBottom: 12, opacity: 0.3 },
-  mockOrderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  mockOrderLabel: { fontSize: 10, color: '#aaa' },
-  mockOrderNum: { fontSize: 14, fontWeight: 700, color: '#333' },
-  mockAddress: { display: 'flex', flexDirection: 'column', gap: 5 },
-  previewStrip: { position: 'absolute', left: 8, right: 8, height: 32, background: '#f5f5ff', border: '1px solid #c8c8e0', borderRadius: 5, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 8px', pointerEvents: 'none', transition: 'top 0.05s ease-out' },
-  previewStripTitle: { fontSize: 5, color: '#8888aa', marginBottom: 2 },
-  previewStripTags: { display: 'flex', gap: 4 },
-  previewTag: { fontSize: 8, fontWeight: 600, padding: '1px 6px', borderRadius: 3 },
-  previewHint: { fontSize: 11, color: '#aaa', margin: 0 },
   aliasInput: { width: 80, border: '1px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' },
   aliasHidden: { fontSize: 11, color: '#cc4444', fontStyle: 'italic' },
   sortList: { display: 'flex', flexDirection: 'column', gap: 2 },
@@ -516,4 +465,7 @@ const styles = {
   comboTags: { display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center' },
   comboTag: { display: 'inline-block', padding: '3px 10px', borderRadius: 5, fontSize: 12, fontWeight: 600 },
   sortBtn: { background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 4, width: 28, height: 24, cursor: 'pointer', fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  sizeSelector: { display: 'flex', gap: 6 },
+  sizeBtn: { background: '#f5f5f5', border: '1px solid #e0e0e0', borderRadius: 6, padding: '7px 18px', fontSize: 13, cursor: 'pointer', color: '#555', fontFamily: 'inherit' },
+  sizeBtnActive: { background: '#1a1a1a', color: '#fff', borderColor: '#1a1a1a' },
 };
