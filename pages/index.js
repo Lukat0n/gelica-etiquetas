@@ -19,6 +19,9 @@ export default function Home() {
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [stripSize, setStripSize] = useState('normal');
+  const [stripMode, setStripMode] = useState('pie');
+  const [stripPct, setStripPct] = useState(0.95);
+  const previewRef = useRef();
   const inputRef = useRef();
 
   useEffect(() => {
@@ -95,7 +98,7 @@ export default function Home() {
     setGenerating(true);
     setPdfBlob(null);
     try {
-      const pdfBytes = await generatePDF(arrayBuffer, labels, comboOrder, aliases, stripSize);
+      const pdfBytes = await generatePDF(arrayBuffer, labels, comboOrder, aliases, stripSize, stripMode === 'pie' ? null : stripPct);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       setPdfBlob(blob);
     } catch (e) {
@@ -357,14 +360,31 @@ export default function Home() {
             </div>
           )}
 
-          {/* Paso 4: Generar */}
+          {/* Paso 4: Posición y generar */}
           {resultado && (
             <div style={styles.card}>
-              <h2 style={styles.cardTitle}>4. Generá el PDF</h2>
-              <p style={styles.helpText}>La tira con el contenido se agrega como pie en cada etiqueta, sin tapar nada.</p>
+              <h2 style={styles.cardTitle}>4. Posición y generar</h2>
 
               <div style={{ marginBottom: 18 }}>
-                <p style={styles.optLabel}>Tamaño de la tira de productos</p>
+                <p style={styles.optLabel}>Ubicación de la tira</p>
+                <div style={styles.sizeSelector}>
+                  <button
+                    style={{ ...styles.sizeBtn, ...(stripMode === 'pie' ? styles.sizeBtnActive : {}) }}
+                    onClick={() => { setStripMode('pie'); setPdfBlob(null); }}
+                  >
+                    Pie (no tapa nada)
+                  </button>
+                  <button
+                    style={{ ...styles.sizeBtn, ...(stripMode === 'manual' ? styles.sizeBtnActive : {}) }}
+                    onClick={() => { setStripMode('manual'); setPdfBlob(null); }}
+                  >
+                    Manual
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <p style={styles.optLabel}>Tamaño de la tira</p>
                 <div style={styles.sizeSelector}>
                   {[
                     { key: 'chica', label: 'Chica' },
@@ -382,6 +402,84 @@ export default function Home() {
                       {opt.label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div style={{ marginBottom: 20 }}>
+                <p style={styles.optLabel}>
+                  {stripMode === 'manual' ? 'Arrastrá la tira para moverla' : 'Vista previa — la tira va al pie'}
+                </p>
+                <div
+                  ref={previewRef}
+                  style={{ ...styles.preview, cursor: stripMode === 'manual' ? 'ns-resize' : 'default' }}
+                  onMouseMove={(e) => {
+                    if (stripMode !== 'manual' || e.buttons !== 1) return;
+                    const rect = previewRef.current.getBoundingClientRect();
+                    const stripH = 32;
+                    const y = e.clientY - rect.top;
+                    const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
+                    setStripPct(pct);
+                    setPdfBlob(null);
+                  }}
+                  onTouchMove={(e) => {
+                    if (stripMode !== 'manual') return;
+                    const rect = previewRef.current.getBoundingClientRect();
+                    const stripH = 32;
+                    const y = e.touches[0].clientY - rect.top;
+                    const pct = Math.max(0, Math.min(1, (y) / (rect.height - stripH)));
+                    setStripPct(pct);
+                    setPdfBlob(null);
+                  }}
+                >
+                  <div style={styles.previewLabel}>
+                    <div style={styles.mockHeader}>
+                      <div style={styles.mockLine} />
+                      <div style={{ ...styles.mockLine, width: '40%' }} />
+                    </div>
+                    <div style={styles.mockBarcode} />
+                    <div style={styles.mockOrderRow}>
+                      <span style={styles.mockOrderLabel}>Orden</span>
+                      <span style={styles.mockOrderNum}>#999999</span>
+                    </div>
+                    <div style={styles.mockAddress}>
+                      <div style={{ ...styles.mockLine, width: '75%' }} />
+                      <div style={{ ...styles.mockLine, width: '55%' }} />
+                      <div style={{ ...styles.mockLine, width: '65%' }} />
+                    </div>
+                    {stripMode === 'pie' && (
+                      <div style={styles.previewFooter}>
+                        <div style={styles.previewStripFooter}>
+                          <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
+                          <div style={styles.previewStripTags}>
+                            {productosEncontrados.slice(0, 2).map(prod => {
+                              const display = aliases[prod] !== undefined ? aliases[prod] : prod;
+                              if (!display) return null;
+                              return <span key={prod} style={{ ...styles.previewTag, ...tagClass(prod) }}>{display}</span>;
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {stripMode === 'manual' && (
+                      <div
+                        style={{
+                          ...styles.previewStrip,
+                          top: `calc(${stripPct * 100}% - ${stripPct * 32}px)`,
+                        }}
+                      >
+                        <span style={styles.previewStripTitle}>CONTENIDO DEL PAQUETE</span>
+                        <div style={styles.previewStripTags}>
+                          {productosEncontrados.slice(0, 2).map(prod => {
+                            const display = aliases[prod] !== undefined ? aliases[prod] : prod;
+                            if (!display) return null;
+                            return <span key={prod} style={{ ...styles.previewTag, ...tagClass(prod) }}>{display}</span>;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {stripMode === 'manual' && <p style={styles.previewHint}>Click y arrastrá hacia arriba o abajo</p>}
                 </div>
               </div>
 
@@ -468,4 +566,20 @@ const styles = {
   sizeSelector: { display: 'flex', gap: 6 },
   sizeBtn: { background: '#f5f5f5', border: '1px solid #e0e0e0', borderRadius: 6, padding: '7px 18px', fontSize: 13, cursor: 'pointer', color: '#555', fontFamily: 'inherit' },
   sizeBtnActive: { background: '#1a1a1a', color: '#fff', borderColor: '#1a1a1a' },
+  preview: { userSelect: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
+  previewLabel: { position: 'relative', width: 220, height: 300, background: '#fff', border: '1px solid #d0d0d0', borderRadius: 6, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', overflow: 'hidden' },
+  mockHeader: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
+  mockLine: { height: 8, background: '#e8e8e8', borderRadius: 4, width: '60%' },
+  mockBarcode: { height: 36, background: 'repeating-linear-gradient(90deg, #333 0px, #333 2px, #fff 2px, #fff 4px)', borderRadius: 3, marginBottom: 12, opacity: 0.3 },
+  mockOrderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  mockOrderLabel: { fontSize: 10, color: '#aaa' },
+  mockOrderNum: { fontSize: 14, fontWeight: 700, color: '#333' },
+  mockAddress: { display: 'flex', flexDirection: 'column', gap: 5 },
+  previewStrip: { position: 'absolute', left: 8, right: 8, height: 32, background: '#f5f5ff', border: '1px solid #c8c8e0', borderRadius: 5, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 8px', pointerEvents: 'none', transition: 'top 0.05s ease-out' },
+  previewFooter: { position: 'absolute', left: 0, right: 0, bottom: 0, background: '#f8f8fc', borderTop: '1px solid #e0e0e8', padding: 6, display: 'flex', justifyContent: 'center' },
+  previewStripFooter: { width: '100%', height: 28, background: '#f5f5ff', border: '1px solid #c8c8e0', borderRadius: 5, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 8px' },
+  previewStripTitle: { fontSize: 5, color: '#8888aa', marginBottom: 2 },
+  previewStripTags: { display: 'flex', gap: 4 },
+  previewTag: { fontSize: 8, fontWeight: 600, padding: '1px 6px', borderRadius: 3 },
+  previewHint: { fontSize: 11, color: '#aaa', margin: 0 },
 };
